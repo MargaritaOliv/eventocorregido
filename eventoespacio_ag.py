@@ -161,6 +161,22 @@ def crear_poblacion(elementos, celdas_restringidas, tam=None, W=None, H=None):
     if tam is None: tam = TAM_POBLACION
     return [crear_individuo(elementos, celdas_restringidas, W, H) for _ in range(tam)]
 
+def calcular_aptitud(individuo, elementos, entradas, salidas, W=None, H=None,
+                     WE=W_DISTRIBUCION, WF=W_FLUJO, WC=W_CONECTIVIDAD, WP=W_PRIORIDAD):
+    if W is None: W = ANCHO_GRID
+    if H is None: H = ALTO_GRID
+
+    O1 = calcular_O1_distribucion(individuo, elementos, W, H)
+    O2 = calcular_O2_flujo(individuo, elementos, W, H)
+    O3 = calcular_O3_conectividad(individuo, elementos, entradas, salidas, W, H)
+    O4 = calcular_O4_prioridad(individuo, elementos, W, H)
+
+    formula_base = O1 * O2 * (1.0 / (1.0 + O3)) * (1.0 / (1.0 + O4))
+    factor_sup = calcular_factor_superposicion(individuo, elementos, W, H)
+    
+    aptitud = formula_base * factor_sup
+    return max(0.0, min(1.0, aptitud))
+
 def calcular_O1_distribucion(individuo, elementos, W=None, H=None):
     if W is None: W = ANCHO_GRID
     if H is None: H = ALTO_GRID
@@ -221,22 +237,22 @@ def calcular_O3_conectividad(individuo, elementos, entradas, salidas, W=None, H=
     elementos_acceso = [i for i, e in enumerate(elementos) if e["requiere_acceso"] == 1]
 
     if not elementos_acceso:
-        return 1.0
+        return 0.0
 
-    def score_proximity(idx_lista, puntos):
+    def score_distance(idx_lista, puntos):
         if not puntos:
-            return 1.0
-        total = 0.0
+            return 0.0
+        total_dist = 0.0
         for i in idx_lista:
             x, y, _ = individuo[i]
             d = min(math.sqrt((x - p["x"])**2 + (y - p["y"])**2) for p in puntos)
-            total += 1.0 - (d / distancia_max)
-        return total / len(idx_lista)
+            total_dist += (d / distancia_max)
+        return total_dist / len(idx_lista)
 
-    score_entradas = score_proximity(elementos_acceso, entradas)
-    score_salidas  = score_proximity(elementos_acceso, salidas) if salidas else 1.0
+    dist_entradas = score_distance(elementos_acceso, entradas)
+    dist_salidas  = score_distance(elementos_acceso, salidas) if salidas else 0.0
 
-    O3 = 0.40 * score_entradas + 0.60 * score_salidas
+    O3 = 0.40 * dist_entradas + 0.60 * dist_salidas
     return max(0.0, min(1.0, O3))
 
 def calcular_O4_prioridad(individuo, elementos, W=None, H=None):
@@ -245,7 +261,7 @@ def calcular_O4_prioridad(individuo, elementos, W=None, H=None):
 
     cx = W / 2
     cy = H / 2
-    radio = min(W, H) / 3
+    distancia_max_centro = math.sqrt(cx**2 + cy**2)
 
     def es_alta(e):
         p = e["prioridad"]
@@ -256,41 +272,67 @@ def calcular_O4_prioridad(individuo, elementos, W=None, H=None):
 
     alta = [i for i, e in enumerate(elementos) if es_alta(e)]
     if not alta:
-        return 1.0
+        return 0.0
 
-    en_zona = sum(
-        1 for i in alta
-        if math.sqrt((individuo[i][0] - cx)**2 + (individuo[i][1] - cy)**2) <= radio
-    )
-    return max(0.0, min(1.0, en_zona / len(alta)))
-
-def calcular_aptitud(individuo, elementos, entradas, salidas, W=None, H=None,
-                     WE=W_DISTRIBUCION, WF=W_FLUJO, WC=W_CONECTIVIDAD, WP=W_PRIORIDAD):
-    if W is None: W = ANCHO_GRID
-    if H is None: H = ALTO_GRID
-
-    O1 = calcular_O1_distribucion(individuo, elementos, W, H)
-    O2 = calcular_O2_flujo(individuo, elementos, W, H)
-    O3 = calcular_O3_conectividad(individuo, elementos, entradas, salidas, W, H)
-    O4 = calcular_O4_prioridad(individuo, elementos, W, H)
-
-    suma_ponderada = (O1 * WE) + (O2 * WF) + (O3 * WC) + (O4 * WP)
-
-    factor_sup = calcular_factor_superposicion(individuo, elementos, W, H)
-
-    aptitud = suma_ponderada * factor_sup
-    return max(0.0, min(1.0, aptitud))
+    total_dist = 0.0
+    for i in alta:
+        d = math.sqrt((individuo[i][0] - cx)**2 + (individuo[i][1] - cy)**2)
+        total_dist += (d / distancia_max_centro)
+        
+    O4 = total_dist / len(alta)
+    return max(0.0, min(1.0, O4))
 
 def seleccion_torneo(poblacion, aptitudes, k=3):
     candidatos = random.sample(range(len(poblacion)), min(k, len(poblacion)))
     mejor_idx  = max(candidatos, key=lambda i: aptitudes[i])
     return copy.deepcopy(poblacion[mejor_idx])
 
-def cruzamiento(padre1, padre2, p_cruza=None):
+def cruzamiento(padre1, padre2, elementos, celdas_restringidas, W, H, p_cruza=None):
     if p_cruza is None: p_cruza = P_CRUZA
+    
     if random.random() < p_cruza:
+        hijo = []
         punto = random.randint(1, len(padre1) - 1)
-        return padre1[:punto] + padre2[punto:]
+        
+        ocupadas = set(celdas_restringidas)
+        
+        for i in range(len(elementos)):
+            gen_principal = padre1[i] if i < punto else padre2[i]
+            gen_secundario = padre2[i] if i < punto else padre1[i]
+            
+            x, y, rotado = gen_principal
+            ancho, alto = dims_efectivas(elementos[i], rotado)
+            celdas_gen = celdas_del_elemento(x, y, ancho, alto)
+            
+            if celdas_gen.isdisjoint(ocupadas):
+                hijo.append(gen_principal)
+                ocupadas.update(celdas_gen)
+            else:
+                x2, y2, rotado2 = gen_secundario
+                a2, al2 = dims_efectivas(elementos[i], rotado2)
+                celdas_gen2 = celdas_del_elemento(x2, y2, a2, al2)
+                
+                if celdas_gen2.isdisjoint(ocupadas):
+                    hijo.append(gen_secundario)
+                    ocupadas.update(celdas_gen2)
+                else:
+                    intentos = 0
+                    while True:
+                        intentos += 1
+                        xr = random.randint(0, max(0, W - ancho))
+                        yr = random.randint(0, max(0, H - alto))
+                        
+                        if elemento_es_valido(xr, yr, ancho, alto, ocupadas):
+                            hijo.append((xr, yr, rotado))
+                            ocupadas.update(celdas_del_elemento(xr, yr, ancho, alto))
+                            break
+                        
+                        if intentos > 500:
+                            hijo.append((xr, yr, rotado))
+                            ocupadas.update(celdas_del_elemento(xr, yr, ancho, alto))
+                            break
+        return hijo
+
     return copy.deepcopy(padre1)
 
 def mutacion(individuo, elementos, celdas_restringidas, pmi=None, pmg=None, W=None, H=None):
@@ -326,7 +368,7 @@ def mutacion(individuo, elementos, celdas_restringidas, pmi=None, pmg=None, W=No
 def _insertar_top3(top3, individuo, aptitud):
     for entry in top3:
         similitud = sum(1 for i in range(len(individuo)) if entry["individuo"][i] == individuo[i])
-        if similitud / len(individuo) > 0.8:
+        if similitud / len(individuo) > 0.40:
             return
             
     top3.append({"individuo": copy.deepcopy(individuo), "aptitud": aptitud})
@@ -342,10 +384,6 @@ def algoritmo_genetico(elementos, entradas, salidas, celdas_restringidas, params
     n_gen   = params.get("generaciones",  N_GENERACIONES) if params else N_GENERACIONES
     W       = params.get("ancho",         ANCHO_GRID)    if params else ANCHO_GRID
     H       = params.get("alto",          ALTO_GRID)     if params else ALTO_GRID
-    WE      = params.get("wE",            W_DISTRIBUCION) if params else W_DISTRIBUCION
-    WF      = params.get("wF",            W_FLUJO)        if params else W_FLUJO
-    WC      = params.get("wC",            W_CONECTIVIDAD) if params else W_CONECTIVIDAD
-    WP      = params.get("wP",            W_PRIORIDAD)    if params else W_PRIORIDAD
 
     poblacion = crear_poblacion(elementos, celdas_restringidas, tam_pob, W, H)
 
@@ -359,7 +397,7 @@ def algoritmo_genetico(elementos, entradas, salidas, celdas_restringidas, params
 
     for _ in range(n_gen):
         aptitudes = [
-            calcular_aptitud(ind, elementos, entradas, salidas, W, H, WE, WF, WC, WP)
+            calcular_aptitud(ind, elementos, entradas, salidas, W, H)
             for ind in poblacion
         ]
 
@@ -379,11 +417,15 @@ def algoritmo_genetico(elementos, entradas, salidas, celdas_restringidas, params
         for ind, apt in zip(poblacion, aptitudes):
             _insertar_top3(top3, ind, apt)
 
-        nueva_poblacion = [copy.deepcopy(mejor_individuo)]
+        poblacion_ordenada = sorted(zip(poblacion, aptitudes), key=lambda x: x[1], reverse=True)
+
+        num_elite = max(1, int(tam_pob * 0.10))
+        nueva_poblacion = [copy.deepcopy(ind) for ind, apt in poblacion_ordenada[:num_elite]]
+
         while len(nueva_poblacion) < tam_pob:
             padre1 = seleccion_torneo(poblacion, aptitudes)
             padre2 = seleccion_torneo(poblacion, aptitudes)
-            hijo   = cruzamiento(padre1, padre2, pc)
+            hijo   = cruzamiento(padre1, padre2, elementos, celdas_restringidas, W, H, pc)
             hijo   = mutacion(hijo, elementos, celdas_restringidas, pmi, pmg, W, H)
             nueva_poblacion.append(hijo)
 

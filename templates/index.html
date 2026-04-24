@@ -337,7 +337,8 @@
         </div>
       </div>
 
-      <div class="config-group config-weights">
+      <!-- Sección de Pesos (Oculta porque la nueva fórmula ya no los necesita) -->
+      <div class="config-group config-weights" style="display: none;">
         <label>Pesos de la función fitness (deben sumar 1.0)</label>
         <div class="weights-grid">
           <div class="weight-item">
@@ -429,7 +430,8 @@
 
         <div class="metric-row">
           <div class="metric-bar-wrap">
-            <div class="metric-label">O3 · C_conectividad (ent+sal)</div>
+            <!-- Textos actualizados para reflejar que son de MINIMIZAR -->
+            <div class="metric-label">O3 · Distancia a accesos (MINIMIZAR)</div>
             <div class="metric-bar-track"><div class="metric-bar" id="barC" style="width:0%"></div></div>
           </div>
           <span class="metric-val" id="valC">—</span>
@@ -437,7 +439,8 @@
 
         <div class="metric-row">
           <div class="metric-bar-wrap">
-            <div class="metric-label">O4 · P_prioridad</div>
+            <!-- Textos actualizados para reflejar que son de MINIMIZAR -->
+            <div class="metric-label">O4 · Distancia al centro (MINIMIZAR)</div>
             <div class="metric-bar-track"><div class="metric-bar" id="barP" style="width:0%"></div></div>
           </div>
           <span class="metric-val" id="valP">—</span>
@@ -687,15 +690,25 @@ function renderMapa(tabla, restricciones, W, H) {
      <div class="legend-item"><span class="legend-dot" style="background:#f0883e"></span><span>salida emergencia</span></div>`;
 }
 
+// NUEVA FUNCIÓN RENDER METRICAS
 function renderMetricas(m, tabla) {
-  const set = (id, val, barId) => {
+  // Función para llenar barras que se MAXIMIZAN (O1 y O2)
+  const setBarraMax = (id, val, barId) => {
     document.getElementById(id).textContent  = val != null ? val.toFixed(4) : "—";
     document.getElementById(barId).style.width = val != null ? (val*100).toFixed(1)+"%" : "0%";
   };
-  set("valE", m.O1, "barE");
-  set("valF", m.O2, "barF");
-  set("valC", m.O3, "barC");
-  set("valP", m.O4, "barP");
+
+  // Función para llenar barras que se MINIMIZAN (O3 y O4)
+  // Invertimos el ancho: si val es 0.0 (distancia perfecta), la barra se llena al 100%
+  const setBarraMin = (id, val, barId) => {
+    document.getElementById(id).textContent  = val != null ? val.toFixed(4) : "—";
+    document.getElementById(barId).style.width = val != null ? ((1 - val)*100).toFixed(1)+"%" : "0%";
+  };
+
+  setBarraMax("valE", m.O1, "barE");
+  setBarraMax("valF", m.O2, "barF");
+  setBarraMin("valC", m.O3, "barC");
+  setBarraMin("valP", m.O4, "barP");
 
   document.getElementById("fitTotal").textContent = m.aptitud.toFixed(6);
   document.getElementById("penVal").textContent   = m.factor != null ? m.factor.toFixed(4) : "—";

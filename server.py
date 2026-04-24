@@ -4,8 +4,7 @@ import traceback
 from eventoespacio_ag import (
     ejecutar_ag,
     TAM_POBLACION, P_CRUZA, P_MUT_IND, P_MUT_GEN, N_GENERACIONES,
-    ANCHO_GRID, ALTO_GRID,
-    W_DISTRIBUCION, W_FLUJO, W_CONECTIVIDAD, W_PRIORIDAD
+    ANCHO_GRID, ALTO_GRID
 )
 
 app = Flask(__name__)
@@ -19,10 +18,6 @@ AG_CONFIG = {
     "N_GENERACIONES": N_GENERACIONES,
     "ANCHO_GRID":     ANCHO_GRID,
     "ALTO_GRID":      ALTO_GRID,
-    "W_DISTRIBUCION": W_DISTRIBUCION,
-    "W_FLUJO":        W_FLUJO,
-    "W_CONECTIVIDAD": W_CONECTIVIDAD,
-    "W_PRIORIDAD":    W_PRIORIDAD,
 }
 
 DATASETS = {
@@ -46,11 +41,9 @@ DATASETS = {
     },
 }
 
-
 @app.route("/")
 def index():
     return render_template("index.html", config=AG_CONFIG)
-
 
 @app.route("/ejecutar", methods=["POST"])
 def ejecutar():
@@ -63,11 +56,9 @@ def ejecutar():
 
     ds = DATASETS[tamano]
 
-    # Verificar que los archivos existen antes de correr el AG
     for ruta in (ds["archivo_elementos"], ds["archivo_restricciones"]):
         if not os.path.exists(ruta):
             return jsonify({"error": f"Archivo no encontrado: {ruta}"}), 500
-
    
     params = {
         "ancho":                 ds["ancho"],
@@ -79,10 +70,6 @@ def ejecutar():
         "p_mut_ind":     float(data.get("p_mut_ind",    P_MUT_IND)),
         "p_mut_gen":     float(data.get("p_mut_gen",    P_MUT_GEN)),
         "generaciones":  int(data.get("generaciones",   N_GENERACIONES)),
-        "wE":            float(data.get("wE",           W_DISTRIBUCION)),
-        "wF":            float(data.get("wF",           W_FLUJO)),
-        "wC":            float(data.get("wC",           W_CONECTIVIDAD)),
-        "wP":            float(data.get("wP",           W_PRIORIDAD)),
     }
 
     try:
@@ -92,7 +79,6 @@ def ejecutar():
         error_detalle = traceback.format_exc()
         print(error_detalle)
         return jsonify({"error": error_detalle}), 500
-
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
